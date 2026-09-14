@@ -558,14 +558,25 @@ function extractSpellingPattern(original, corrected){
 // When the local check can't confirm a fix and the deeper AI check is turned on, ask
 // it to judge the candidate by whether it makes sense in the SENTENCE -- the same kind
 // of judgment call already used for "Say it" -- instead of by spelling closeness alone.
+//
+// This runs on the fast/cheap "quick" model tier, and asking it to jump straight to a
+// bare true/false verdict turned out to be genuinely unreliable -- repeated live testing
+// with the EXACT SAME sentence and candidate word ("notest" -> "noticed", an unambiguous
+// correct fix) came back true about half the time and false the other half, with nothing
+// in the input changing between calls. Asking for one short phrase of reasoning BEFORE
+// the verdict (classic chain-of-thought) fixed this completely in that same testing --
+// forcing the model to actually articulate what the sentence means before answering
+// makes the fast tier consistently get it right, instead of pattern-matching straight to
+// a coin-flip verdict.
 async function aiWordFitsContext(f, candidate){
   if (!aiConfigured()) return false;
   try{
     var before = state.text.slice(Math.max(0,f.start-70), f.start);
     var after = state.text.slice(f.end, f.end+70);
     var prompt = "A student with dyslexia originally wrote \""+f.original+"\" in this sentence: \""+before+"["+f.original+"]"+after+"\". "+
-      "They're now trying the word \""+candidate+"\" instead. Judging ONLY by whether \""+candidate+"\" makes sense in that exact spot given the rest of the sentence (not by how similar it looks or sounds to their original spelling), is it a good fix? "+
-      "Reply with ONLY a JSON object like {\"fits\":true} or {\"fits\":false}.";
+      "They're now trying the word \""+candidate+"\" instead of \""+f.original+"\". First, in one short phrase, explain what the sentence is saying and whether \""+candidate+"\" fits grammatically and logically in that exact spot. Then give your final verdict. "+
+      "Judge ONLY whether it fits the sentence, not how close it is in spelling or sound to their original attempt. "+
+      "Reply with ONLY a JSON object like {\"reasoning\":\"one short phrase\",\"fits\":true} or {\"reasoning\":\"one short phrase\",\"fits\":false}.";
     var result = await callAI(prompt, "gpt-5-nano", 300);
     return !!(result && result.fits === true);
   }catch(e){ return false; }
@@ -1097,30 +1108,53 @@ async function runAIPass(text, localFlags){
     var prompt = buildPrompt(text, localFlags);
     var result = await callAI(prompt, "gpt-5-mini", 1200);
     if (!Array.isArray(result)) throw new Error("bad shape");
-    var used = state.flags.map(function(f){ return {start:f.start,end:f.end}; });
+    // Starts empty on purpose, NOT seeded from the existing local flags: a local flag's
+    // own span is exactly where an AI item upgrading that same spot needs to be found,
+    // and for a word that appears only once in the paragraph (the common case), seeding
+    // this with the local flags' spans made that single occurrence look "already used"
+    // before the AI item ever got a chance to claim it -- so locateSnippet() would
+    // always fail to relocate it, and the AI's (often more informative) catch would
+    // silently vanish with no error, looking exactly like "the AI check isn't doing
+    // anything". Each item's own loc is still pushed in below, so two AI items in the
+    // same pass still can't both claim the identical occurrence of a repeated word.
+    var used = [];
     var aiLocs = []; // exact spans the AI actually confirmed, for precise per-occurrence noise reduction below
     var added = 0, upgraded = 0;
+    // The AI can return more than one item touching the SAME spot -- e.g. a broad
+    // catch covering a whole clause ("Even no she will never amite to it.") and a
+    // narrower one nested inside it ("amite" alone). Without tracking which flags
+    // this pass has already claimed, the second item would silently overwrite the
+    // first at the same array slot, and whichever came first (often the more
+    // informative, broader catch) would just vanish with no error or trace --
+    // exactly the kind of thing that looks like "the AI check isn't doing anything"
+    // even though it genuinely found and returned both issues. Each existing flag
+    // may be upgraded by at most one AI item per pass; anything else that would
+    // land on an already-claimed spot becomes its own additional flag instead of
+    // clobbering it, so no genuine catch is thrown away.
+    var claimedIdx = {};
     result.forEach(function(item){
       if (!item || typeof item.original !== 'string' || typeof item.suggestion !== 'string') return;
       var loc = locateSnippet(text, item.original, used);
       if (!loc) return;
       used.push(loc);
       aiLocs.push(loc);
-      // does this overlap an existing local flag? if so, upgrade it
+      // does this overlap an existing, not-yet-claimed local flag? if so, upgrade it
       var overlapIdx = -1;
-      state.flags.forEach(function(f,i){ if (f.start < loc.end && f.end > loc.start) overlapIdx = i; });
+      state.flags.forEach(function(f,i){ if (!claimedIdx[i] && f.start < loc.end && f.end > loc.start) overlapIdx = i; });
       var type = (item.type||'spelling').toLowerCase().indexOf('word')===0 ? 'word choice' : item.type;
       if (['spelling','grammar','punctuation','word choice'].indexOf(type)===-1) type = 'grammar';
       if (overlapIdx > -1){
         var f = state.flags[overlapIdx];
         f.start = loc.start; f.end = loc.end; f.original = item.original;
         f.suggestion = item.suggestion; f.type = type; f.source='ai'; f.explanation = item.explanation || f.explanation;
+        claimedIdx[overlapIdx] = true;
         upgraded++;
       } else {
         state.flags.push({
           start:loc.start, end:loc.end, original:item.original, suggestion:item.suggestion,
           type:type, source:'ai', status:'open', explanation: item.explanation || ("This should be “"+item.suggestion+"”.")
         });
+        claimedIdx[state.flags.length-1] = true;
         added++;
       }
     });
