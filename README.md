@@ -52,7 +52,7 @@ Because the AI check is a paid, unauthenticated public endpoint, several layers 
 - A **server-side model allow-list** in the Worker, so a direct request can't ask for a pricier model than the app intends to use.
 - **Character and token ceilings** on every single request/response, independent of the session cap.
 
-None of this is a hard security boundary — see **Caveats** below and `README-deploy.md`'s "Cost safeguards" section for what's still open (CORS is currently wide-open, and there's no server-side rate limit) and how to tighten it before sharing at real scale.
+None of this is a hard security boundary — the Worker's CORS is restricted to the site's own origin (so other sites can't quietly ride on the API key through a browser), but there's still no server-side rate limit, and CORS doesn't stop a direct curl/script call at all. See **Caveats** below and `README-deploy.md`'s "Cost safeguards" section for what's still open and how to tighten it further before sharing at real scale.
 
 ## Caveats
 
