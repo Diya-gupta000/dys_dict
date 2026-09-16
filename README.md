@@ -2,7 +2,8 @@
 
 **A writing checker built for dyslexic students** — it catches not just misspelled words, but the harder category of mistake dyslexic writers hit constantly: real, correctly-spelled words used in the wrong place (writing "bet" instead of "but," or "licker" instead of "like"). A plain spell-checker can't catch these, because nothing is technically misspelled.
 
-**Live site:** [tinimini12.github.io/dys_dict](https://tinimini12.github.io/dys_dict/)
+**Live site:**(https://diya-gupta000.github.io/dys_dict/)
+
 
 Instead of silently auto-correcting, Second Look gives a hint and lets the student type (or say) their own fix — the goal is building the student's own skill, not just cleaning up their text.
 
@@ -69,4 +70,4 @@ Vanilla HTML/CSS/JS on the frontend (no build step, no framework), a Cloudflare 
 
 ## Credits
 
-Built by Ramneek. Developed with [Claude](https://claude.com) as an AI coding assistant — the project's direction, testing, and final design decisions are the owner's.
+Built by Diya. Developed with [Claude](https://claude.com) as an AI coding assistant — the project's direction, testing, and final design decisions are the owner's.
