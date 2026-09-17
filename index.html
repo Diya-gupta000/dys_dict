@@ -7,18 +7,32 @@
 <meta name="description" content="A dyslexia-friendly writing checker that gives hints instead of fixes, reads suggestions aloud, and tracks a student's progress over time.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Baloo+2:wght@500;600;700;800&family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#FAF6EE; --surface:#FFFFFF; --surface-2:#F1EAD9; --border:#E4D9C3;
-  --text:#2B2620; --text-muted:#6B6152;
+  /* Base text/background follow British Dyslexia Association guidance: dark charcoal on a
+     warm off-white, never pure black-on-white, with contrast checked (not eyeballed) against
+     WCAG AA 4.5:1 for every text/background pairing below -- the warn/info/special/confusable
+     accents were specifically darkened from an earlier palette that measured under 4.5:1 when
+     used as small badge/banner text on their own "-soft" backgrounds. */
+  --bg:#FAF8F2; --surface:#FFFFFF; --surface-2:#F1EAD9; --border:#E4D9C3;
+  --text:#2B2B2B; --text-muted:#6B6152;
   --accent:#2F6F63; --accent-strong:#245650; --accent-contrast:#FFFFFF; --accent-soft:#DCEEE9;
-  --warn:#C1543F; --warn-soft:#F6E1DC;
-  --info:#3A6EA5; --info-soft:#DEE9F4;
-  --special:#7A5CA6; --special-soft:#EBE2F5;
-  --confusable:#A9781F; --confusable-soft:#F3E7CB;
-  --success:#2E7D4F; --success-soft:#DFF0E4;
+  --warn:#A74836; --warn-soft:#F6E1DC;
+  --info:#38699E; --info-soft:#DEE9F4;
+  --special:#7557A0; --special-soft:#EBE2F5;
+  --confusable:#876019; --confusable-soft:#F3E7CB;
+  --success:#2C774C; --success-soft:#DFF0E4;
   --shadow: rgba(43,38,32,0.10);
+  /* reading settings -- adjustable font + size, applied to :root by applyReadPrefs() and
+     persisted in localStorage so they survive a reload; --read-fs has an 18px floor even
+     after "smaller" is pressed, since 18px is the accessibility minimum this pass is built
+     around, not just its starting default. */
+  --read-fs: 18px;
+  --font-body: "Atkinson Hyperlegible","Lexend",system-ui,sans-serif;
+}
+:root[data-read-font="opendyslexic"]{
+  --font-body: "OpenDyslexicShared","Atkinson Hyperlegible","Lexend",system-ui,sans-serif;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -46,13 +60,26 @@
 }
 
 *{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;}
 body{
   margin:0; background:var(--bg); color:var(--text);
-  font-family:"Lexend","Atkinson Hyperlegible",system-ui,sans-serif;
+  font-family:var(--font-body);
+  font-size:var(--read-fs);
+  line-height:1.5;
+  letter-spacing:0.05em;
+  text-align:left;
   -webkit-font-smoothing:antialiased;
 }
-h1,h2,h3,.brand,button,.tab{font-family:"Baloo 2","Lexend",system-ui,sans-serif;}
+/* Bold, never italics, for emphasis anywhere in the UI -- a belt-and-suspenders reset in
+   case any future markup reaches for <em>/<i> without knowing this rule. */
+em,i{font-style:normal; font-weight:600;}
+h1,.brand{font-family:"Baloo 2","Lexend",system-ui,sans-serif;}
+h2,h3{font-family:var(--font-body);}
 h1,h2,h3{text-wrap:balance; margin:0;}
+/* form controls don't inherit body's font by default in most browsers -- opt them back in
+   so the reading-font/size choice actually reaches every button, tab and input, not just
+   plain text. */
+button,.tab,input,textarea{font-family:var(--font-body);}
 
 .wrap{max-width:820px; margin:0 auto; padding:28px 20px 80px;}
 
@@ -67,12 +94,12 @@ header.top{
   font-size:20px; flex:none; box-shadow:0 2px 6px var(--shadow);
 }
 .brand h1{font-size:22px; font-weight:700; letter-spacing:.2px;}
-.brand p{margin:2px 0 0; font-size:13px; color:var(--text-muted); font-family:"Lexend",sans-serif;}
+.brand p{margin:2px 0 0; font-size:13px; color:var(--text-muted);}
 
 .tabs{display:flex; gap:6px; background:var(--surface-2); padding:4px; border-radius:12px; border:1px solid var(--border);}
 .tab{
   border:none; background:transparent; color:var(--text-muted); padding:9px 16px; border-radius:9px;
-  font-size:14px; font-weight:600; cursor:pointer; transition:background .15s,color .15s;
+  min-height:44px; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s,color .15s;
 }
 .tab[aria-selected="true"]{background:var(--accent); color:var(--accent-contrast);}
 .tab:not([aria-selected="true"]):hover{color:var(--text);}
@@ -91,16 +118,16 @@ header.top{
 .wordcount{font-size:12.5px; color:var(--text-muted); font-variant-numeric:tabular-nums;}
 
 textarea#editor{
-  width:100%; min-height:180px; resize:vertical; border-radius:14px; border:1.5px solid var(--border);
-  background:var(--surface-2); color:var(--text); padding:16px 18px; font:inherit; font-size:17px; line-height:1.65;
-  font-family:"Lexend",sans-serif;
+  width:100%; max-width:65ch; min-height:180px; resize:vertical; border-radius:14px; border:1.5px solid var(--border);
+  background:var(--surface-2); color:var(--text); padding:16px 18px; font:inherit; font-size:var(--read-fs); line-height:1.65;
+  letter-spacing:0.05em;
 }
 textarea#editor:focus{outline:2px solid var(--accent); outline-offset:1px;}
 
 .reviewed{
-  width:100%; min-height:180px; border-radius:14px; border:1.5px solid var(--border);
-  background:var(--surface-2); color:var(--text); padding:16px 18px; font-size:17px; line-height:1.9;
-  font-family:"Lexend",sans-serif; white-space:pre-wrap;
+  width:100%; max-width:65ch; min-height:180px; border-radius:14px; border:1.5px solid var(--border);
+  background:var(--surface-2); color:var(--text); padding:16px 18px; font-size:var(--read-fs); line-height:1.9;
+  letter-spacing:0.05em; white-space:pre-wrap;
 }
 .reviewed mark{
   background:transparent; color:inherit; cursor:pointer; padding:0 1px; border-radius:3px;
@@ -108,18 +135,21 @@ textarea#editor:focus{outline:2px solid var(--accent); outline-offset:1px;}
   transition:background .12s;
 }
 .reviewed mark:hover{background:var(--flag-soft, var(--warn-soft));}
+.reviewed mark:focus-visible, .reviewed .askword:focus-visible{outline:3px solid var(--accent); outline-offset:2px;}
 .reviewed mark.resolved{border-bottom-style:dotted; opacity:.55;}
-.reviewed mark.f-spelling{--flag-color:var(--warn); --flag-soft:var(--warn-soft);}
-.reviewed mark.f-grammar{--flag-color:var(--info); --flag-soft:var(--info-soft);}
-.reviewed mark.f-punctuation{--flag-color:var(--special); --flag-soft:var(--special-soft);}
-.reviewed mark.f-confusable, .reviewed mark.f-word_choice{--flag-color:var(--confusable); --flag-soft:var(--confusable-soft);}
-.reviewed mark.f-ask{--flag-color:var(--accent); --flag-soft:var(--accent-soft);}
+/* Underline STYLE differs per flag type, not just color -- so which kind of mistake this is
+   doesn't rely on color perception alone (BDA guidance: never signal an error with color only). */
+.reviewed mark.f-spelling{--flag-color:var(--warn); --flag-soft:var(--warn-soft); border-bottom-style:solid;}
+.reviewed mark.f-grammar{--flag-color:var(--info); --flag-soft:var(--info-soft); border-bottom-style:dashed;}
+.reviewed mark.f-punctuation{--flag-color:var(--special); --flag-soft:var(--special-soft); border-bottom-style:dotted;}
+.reviewed mark.f-confusable, .reviewed mark.f-word_choice{--flag-color:var(--confusable); --flag-soft:var(--confusable-soft); border-bottom-style:double; border-bottom-width:4px;}
+.reviewed mark.f-ask{--flag-color:var(--accent); --flag-soft:var(--accent-soft); border-bottom-style:solid;}
 .reviewed .askword{cursor:pointer; border-radius:3px;}
 .reviewed .askword:hover{background:var(--accent-soft);}
 
 .btnrow{display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; align-items:center;}
 button.btn{
-  font-size:14.5px; font-weight:600; border-radius:11px; padding:11px 18px; cursor:pointer;
+  font-size:14.5px; font-weight:600; border-radius:11px; padding:11px 18px; min-height:44px; cursor:pointer;
   border:1.5px solid transparent; transition:transform .08s, background .15s, border-color .15s;
   display:inline-flex; align-items:center; gap:7px;
 }
@@ -129,8 +159,11 @@ button.btn.primary:hover{background:var(--accent-strong);}
 button.btn.ghost{background:transparent; border-color:var(--border); color:var(--text);}
 button.btn.ghost:hover{border-color:var(--accent); color:var(--accent);}
 button.btn:disabled{opacity:.5; cursor:not-allowed;}
-button.iconbtn{background:transparent;border:1.5px solid var(--border);border-radius:9px;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text);font-size:15px;}
+button.iconbtn{background:transparent;border:1.5px solid var(--border);border-radius:9px;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text);font-size:15px;}
 button.iconbtn:hover{border-color:var(--accent); color:var(--accent);}
+button.btn:focus-visible, button.iconbtn:focus-visible, .tab:focus-visible, .fb-link:focus-visible{
+  outline:3px solid var(--accent); outline-offset:2px;
+}
 
 .optionrow{display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--text-muted); margin-top:10px;}
 .optionrow input{accent-color:var(--accent);}
@@ -158,42 +191,45 @@ button.iconbtn:hover{border-color:var(--accent); color:var(--accent);}
 @media (min-width:640px){ .overlay{align-items:center;} }
 .pop{
   background:var(--surface); border:1px solid var(--border); border-radius:20px 20px 0 0; width:100%; max-width:480px;
-  padding:22px; box-shadow:0 -8px 30px var(--shadow); max-height:85vh; overflow:auto;
+  padding:26px; box-shadow:0 -8px 30px var(--shadow); max-height:85vh; overflow:auto;
 }
 @media (min-width:640px){ .pop{border-radius:20px; margin-bottom:40px;} }
 .pop .kind{
   display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px;
-  padding:4px 10px; border-radius:999px; margin-bottom:12px;
+  padding:4px 10px; border-radius:999px; margin-bottom:14px;
 }
-.pop .original{font-size:19px; margin:4px 0 10px; font-weight:600;}
+.pop .original{font-size:calc(var(--read-fs) * 1.05); margin:4px 0 12px; font-weight:600;}
 .pop .original s{color:var(--warn); text-decoration-color:var(--warn);}
-.pop .explain{font-size:15px; line-height:1.6; color:var(--text); margin-bottom:16px;}
-.pop label{font-size:13px; color:var(--text-muted); display:block; margin-bottom:6px;}
+.pop .explain{font-size:var(--read-fs); line-height:1.6; color:var(--text); margin-bottom:18px;}
+.pop label{font-size:14px; color:var(--text-muted); display:block; margin-bottom:8px;}
 .pop input[type=text]{
-  width:100%; padding:12px 14px; border-radius:11px; border:1.5px solid var(--border); background:var(--surface-2);
-  color:var(--text); font-size:16px; font-family:"Lexend",sans-serif;
+  width:100%; min-height:44px; padding:12px 14px; border-radius:11px; border:1.5px solid var(--border); background:var(--surface-2);
+  color:var(--text); font-size:16px;
 }
-.pop input[type=text]:focus{outline:2px solid var(--accent);}
+.pop input[type=text]:focus, .pop input[type=text]:focus-visible{outline:3px solid var(--accent); outline-offset:1px;}
 .pop .feedback{margin-top:10px; font-size:14px; min-height:20px;}
 .pop .feedback.good{color:var(--success);}
 .pop .feedback.bad{color:var(--warn);}
-.pop .popbtns{display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;}
-.pop .reveal-box{margin-top:12px; padding:12px 14px; background:var(--success-soft); border-radius:11px; font-size:15px; display:none;}
+.pop .popbtns{display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;}
+.pop .reveal-box{margin-top:14px; padding:12px 14px; background:var(--success-soft); border-radius:11px; font-size:15px; display:none;}
 .pop .reveal-box.show{display:block;}
 .pop .closebar{display:flex; justify-content:flex-end; margin-bottom:-6px;}
 .pop .voice-hint{
-  display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px 12px;
+  display:flex; align-items:center; gap:8px; margin-top:16px; padding:10px 12px;
   background:var(--accent-soft); border-radius:11px; font-size:13.5px; color:var(--accent-strong);
 }
 button.btn.mic.listening{background:var(--warn); border-color:var(--warn); color:#fff; animation:micpulse 1s ease-in-out infinite;}
 @keyframes micpulse{0%,100%{opacity:1;}50%{opacity:.6;}}
 
 /* "this looks wrong" flag feedback -- deliberately quiet so it never competes
-   with the primary fix-checking action above it */
-.pop .fb-footer{margin-top:14px; text-align:center;}
+   with the primary fix-checking action above it. Still gets the same 44px minimum
+   tap target as every other popover control -- "quiet" is a visual choice (small
+   type, muted color, dotted underline), not a smaller hit area. */
+.pop .fb-footer{margin-top:16px; text-align:center;}
 .fb-link{
-  background:none; border:none; padding:6px 4px; font-size:12.5px; color:var(--text-muted);
-  text-decoration:underline; text-decoration-style:dotted; cursor:pointer; font-family:"Lexend",sans-serif;
+  background:none; border:none; padding:6px 4px; min-height:44px; display:inline-flex; align-items:center;
+  font-size:12.5px; color:var(--text-muted);
+  text-decoration:underline; text-decoration-style:dotted; cursor:pointer;
 }
 .fb-link:hover{color:var(--accent-strong);}
 .pop .fb-followup{
@@ -227,6 +263,42 @@ button.btn.mic.listening{background:var(--warn); border-color:var(--warn); color
 .feedback-list{display:flex; flex-direction:column; gap:8px;}
 .feedback-row{display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--surface-2); border-radius:12px; padding:10px 14px; font-size:13.5px;}
 .feedback-count{font-size:13px; font-weight:700; color:var(--accent-strong); background:var(--surface); border-radius:999px; padding:4px 11px; white-space:nowrap;}
+
+/* reading settings -- font + size control, kept as a small anchored panel (not the big
+   word-flag overlay) so it never blocks the page underneath it while it's open. */
+.rs-wrap{position:relative;}
+.rs-panel{
+  position:absolute; top:calc(100% + 8px); right:0; z-index:30; width:260px;
+  background:var(--surface); border:1px solid var(--border); border-radius:16px;
+  padding:18px; box-shadow:0 8px 24px var(--shadow);
+}
+.rs-panel[hidden]{display:none;}
+.rs-panel h4{font-size:13px; text-transform:uppercase; letter-spacing:.4px; color:var(--text-muted); font-weight:700; margin:0 0 10px;}
+.rs-panel h4 + h4{margin-top:16px;}
+.rs-row{display:flex; gap:8px; flex-wrap:wrap;}
+.rs-option{
+  flex:1; min-width:100px; min-height:44px; padding:8px 10px; border-radius:10px; border:1.5px solid var(--border);
+  background:var(--surface-2); color:var(--text); cursor:pointer; font-size:14px; font-weight:600;
+}
+.rs-option[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:var(--accent-contrast);}
+.rs-sizerow{display:flex; align-items:center; gap:8px;}
+.rs-sizerow button{
+  width:44px; height:44px; border-radius:10px; border:1.5px solid var(--border); background:var(--surface-2);
+  color:var(--text); font-size:18px; font-weight:700; cursor:pointer;
+}
+.rs-sizerow button:disabled{opacity:.4; cursor:not-allowed;}
+.rs-sizerow button:hover:not(:disabled){border-color:var(--accent); color:var(--accent);}
+.rs-sizeval{flex:1; text-align:center; font-size:14px; color:var(--text-muted); font-variant-numeric:tabular-nums;}
+.rs-option:focus-visible, .rs-sizerow button:focus-visible{outline:3px solid var(--accent); outline-offset:2px;}
+
+/* Respect a visitor's OS-level motion preference -- every non-essential transition and
+   keyframe animation in the UI is switched off here rather than left to chance per-rule. */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation-duration:0.001ms !important; animation-iteration-count:1 !important;
+    transition-duration:0.001ms !important; scroll-behavior:auto !important;
+  }
+}
 </style>
 
 </head>
@@ -243,6 +315,22 @@ button.btn.mic.listening{background:var(--warn); border-color:var(--warn); color
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-view="write">Write</button>
       <button class="tab" role="tab" aria-selected="false" data-view="progress">My Progress</button>
+    </div>
+    <div class="rs-wrap">
+      <button class="iconbtn" id="btnReadingSettings" title="Reading settings" aria-label="Reading settings" aria-haspopup="true" aria-expanded="false">Aa</button>
+      <div class="rs-panel" id="rsPanel" hidden>
+        <h4 id="rsFontLabel">Font</h4>
+        <div class="rs-row" role="group" aria-labelledby="rsFontLabel">
+          <button type="button" class="rs-option" id="rsFontAtkinson" aria-pressed="true">Atkinson Hyperlegible</button>
+          <button type="button" class="rs-option" id="rsFontOpenDyslexic" aria-pressed="false">OpenDyslexic</button>
+        </div>
+        <h4 id="rsSizeLabel">Text size</h4>
+        <div class="rs-sizerow" role="group" aria-labelledby="rsSizeLabel">
+          <button type="button" id="rsSizeDown" aria-label="Smaller text">A−</button>
+          <span class="rs-sizeval" id="rsSizeVal">18px</span>
+          <button type="button" id="rsSizeUp" aria-label="Larger text">A+</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -692,6 +780,107 @@ function locateSnippet(text, snippet, usedRanges){
   if (idx === -1) return null;
   return {start:idx, end:idx+snippet.length};
 }
+
+/* ---------------- reading settings (font + text size) ----------------
+   A student's most basic accommodation -- which font renders the text, and how big it is --
+   shouldn't be buried in a browser zoom control. This is a small, always-available "Aa" panel
+   in the header, persisted the same way the request asked for (localStorage, in both build
+   targets, regardless of whether progress itself uses localStorage or Claude's db for this
+   particular build), and applied via CSS custom properties so one JS write updates every
+   reading surface (editor, reviewed text, popover) at once. */
+var READ_PREFS_KEY = "secondlook_reading_prefs_v1";
+var READ_FS_MIN = 18, READ_FS_MAX = 32, READ_FS_STEP = 2, READ_FS_DEFAULT = 18;
+var openDyslexicInjected = false;
+
+function loadReadPrefs(){
+  var prefs = { font: 'atkinson', size: READ_FS_DEFAULT };
+  try{
+    var raw = localStorage.getItem(READ_PREFS_KEY);
+    if (raw){
+      var parsed = JSON.parse(raw);
+      if (parsed && (parsed.font === 'atkinson' || parsed.font === 'opendyslexic')) prefs.font = parsed.font;
+      if (parsed && typeof parsed.size === 'number' && parsed.size >= READ_FS_MIN && parsed.size <= READ_FS_MAX) prefs.size = parsed.size;
+    }
+  }catch(e){}
+  return prefs;
+}
+function saveReadPrefs(prefs){
+  try{ localStorage.setItem(READ_PREFS_KEY, JSON.stringify(prefs)); }catch(e){}
+}
+
+// OpenDyslexic isn't on Google Fonts, so it's loaded on demand from a public CDN mirror of
+// the open-source typeface -- only when a student actually picks it, not on every page load.
+// If a host environment's content policy blocks that external stylesheet (some sandboxed
+// viewers only allow Google Fonts), the font-family fallback chain quietly lands back on
+// Atkinson Hyperlegible instead of breaking anything -- a student never sees an error, just
+// whichever legible font their environment actually let load.
+function ensureOpenDyslexicLoaded(){
+  if (openDyslexicInjected) return;
+  openDyslexicInjected = true;
+  try{
+    var style = document.createElement('style');
+    style.textContent =
+      '@font-face{font-family:"OpenDyslexicShared";font-weight:400;font-style:normal;' +
+      'src:url("https://cdn.jsdelivr.net/gh/antijingoist/open-dyslexic@master/woff/OpenDyslexic-Regular.woff") format("woff");}' +
+      '@font-face{font-family:"OpenDyslexicShared";font-weight:700;font-style:normal;' +
+      'src:url("https://cdn.jsdelivr.net/gh/antijingoist/open-dyslexic@master/woff/OpenDyslexic-Bold.woff") format("woff");}';
+    document.head.appendChild(style);
+  }catch(e){}
+}
+
+var rsFontAtkinson = document.getElementById('rsFontAtkinson');
+var rsFontOpenDyslexic = document.getElementById('rsFontOpenDyslexic');
+var rsSizeVal = document.getElementById('rsSizeVal');
+var rsSizeUp = document.getElementById('rsSizeUp');
+var rsSizeDown = document.getElementById('rsSizeDown');
+var readPrefs = loadReadPrefs();
+
+function applyReadPrefs(){
+  document.documentElement.style.setProperty('--read-fs', readPrefs.size + 'px');
+  document.documentElement.setAttribute('data-read-font', readPrefs.font);
+  if (readPrefs.font === 'opendyslexic') ensureOpenDyslexicLoaded();
+  rsFontAtkinson.setAttribute('aria-pressed', String(readPrefs.font === 'atkinson'));
+  rsFontOpenDyslexic.setAttribute('aria-pressed', String(readPrefs.font === 'opendyslexic'));
+  rsSizeVal.textContent = readPrefs.size + 'px';
+  rsSizeDown.disabled = readPrefs.size <= READ_FS_MIN;
+  rsSizeUp.disabled = readPrefs.size >= READ_FS_MAX;
+}
+applyReadPrefs();
+
+rsFontAtkinson.addEventListener('click', function(){
+  readPrefs.font = 'atkinson'; saveReadPrefs(readPrefs); applyReadPrefs();
+});
+rsFontOpenDyslexic.addEventListener('click', function(){
+  readPrefs.font = 'opendyslexic'; saveReadPrefs(readPrefs); applyReadPrefs();
+});
+rsSizeUp.addEventListener('click', function(){
+  readPrefs.size = Math.min(READ_FS_MAX, readPrefs.size + READ_FS_STEP);
+  saveReadPrefs(readPrefs); applyReadPrefs();
+});
+rsSizeDown.addEventListener('click', function(){
+  readPrefs.size = Math.max(READ_FS_MIN, readPrefs.size - READ_FS_STEP);
+  saveReadPrefs(readPrefs); applyReadPrefs();
+});
+
+var btnReadingSettings = document.getElementById('btnReadingSettings');
+var rsPanel = document.getElementById('rsPanel');
+function closeReadingSettings(){
+  rsPanel.hidden = true;
+  btnReadingSettings.setAttribute('aria-expanded', 'false');
+}
+btnReadingSettings.addEventListener('click', function(){
+  var willOpen = rsPanel.hidden;
+  rsPanel.hidden = !willOpen;
+  btnReadingSettings.setAttribute('aria-expanded', String(willOpen));
+});
+document.addEventListener('click', function(e){
+  if (!rsPanel.hidden && !rsPanel.contains(e.target) && e.target !== btnReadingSettings){
+    closeReadingSettings();
+  }
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && !rsPanel.hidden) closeReadingSettings();
+});
 
 /* ---------------- app state ---------------- */
 var state = {
