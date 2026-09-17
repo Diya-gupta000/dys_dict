@@ -839,9 +839,20 @@ document.getElementById('popTry').addEventListener('click', async function(){
   // on, don't reject it purely for being spelling-distant from the original garbled
   // word -- ask whether it actually makes sense in the sentence instead. This is what
   // catches "liyt" -> "late" (a real fix, but not spelling-close to "liyt" at all).
+  //
+  // A single garbled word can also need to become MORE than one real word to be right
+  // (e.g. "froow" in "...in froow the door" was reaching for "front", but "front" alone
+  // still leaves the sentence wrong -- the actual fix is the two-word "front of"). The
+  // old check stripped every character that wasn't a letter or apostrophe, which also
+  // strips the space between words -- so "front of" collapsed into "frontof", which of
+  // course isn't in the dictionary, and a perfectly good multi-word fix was rejected
+  // before the AI ever got a chance to judge it. Checking each word of the typed answer
+  // against the dictionary (instead of the whole answer as one squashed-together string)
+  // lets a real phrase through to the same AI judgment call a single real word already got.
   if (!accepted && f.type === 'spelling' && f.source === 'local' && useAI.checked){
-    var lcVal = val.toLowerCase().replace(/[^a-z']/g,'');
-    if (DICT_SET.has(lcVal)){
+    var candidateWords = val.toLowerCase().replace(/[^a-z' ]/g,'').trim().split(/\s+/).filter(Boolean);
+    var isRealWordOrPhrase = candidateWords.length > 0 && candidateWords.every(function(w){ return DICT_SET.has(w); });
+    if (isRealWordOrPhrase){
       popFeedback.textContent = "That's a real word — checking if it fits here…";
       popFeedback.className = "feedback";
       var fits = await aiWordFitsContext(f, val);
