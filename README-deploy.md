@@ -183,7 +183,7 @@ working:
   against someone hammering the endpoint directly, since sessionStorage
   can't see across tabs or people.
 - **Restrict the Worker's CORS to your real domain.** Already done —
-  `ALLOWED_ORIGIN` in `wrangler.toml` is set to `https://tinimini12.github.io`
+  `ALLOWED_ORIGIN` in `wrangler.toml` is set to `https://diya-gupta000.github.io`
   (GitHub Pages serves every repo under one account from that same origin,
   so this one value covers the whole site regardless of which repo it's in).
   This stops *other sites'* pages from quietly using your API key through
