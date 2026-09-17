@@ -69,4 +69,4 @@ Vanilla HTML/CSS/JS on the frontend (no build step, no framework), a Cloudflare 
 
 ## Credits
 
-Built by Ramneek. Developed with [Claude](https://claude.com) as an AI coding assistant — the project's direction, testing, and final design decisions are the owner's.
+Built by Diya. Developed with [Claude](https://claude.com) as an AI coding assistant — the project's direction, testing, and final design decisions are the owner's.
