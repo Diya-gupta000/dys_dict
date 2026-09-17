@@ -188,6 +188,23 @@ button.iconbtn:hover{border-color:var(--accent); color:var(--accent);}
 button.btn.mic.listening{background:var(--warn); border-color:var(--warn); color:#fff; animation:micpulse 1s ease-in-out infinite;}
 @keyframes micpulse{0%,100%{opacity:1;}50%{opacity:.6;}}
 
+/* "this looks wrong" flag feedback -- deliberately quiet so it never competes
+   with the primary fix-checking action above it */
+.pop .fb-footer{margin-top:14px; text-align:center;}
+.fb-link{
+  background:none; border:none; padding:6px 4px; font-size:12.5px; color:var(--text-muted);
+  text-decoration:underline; text-decoration-style:dotted; cursor:pointer; font-family:"Lexend",sans-serif;
+}
+.fb-link:hover{color:var(--accent-strong);}
+.pop .fb-followup{
+  margin-top:10px; padding:12px 14px; background:var(--surface-2); border-radius:11px;
+}
+.pop .fb-thanks{font-size:13.5px; color:var(--accent-strong); font-weight:600; margin-bottom:8px;}
+.pop .fb-followup-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;}
+.pop .fb-followup-row input[type=text]{flex:1; min-width:120px; padding:9px 12px; font-size:14px;}
+.pop .fb-followup .btn{padding:9px 12px; font-size:13px;}
+.pop .fb-followup .fb-link{padding:6px 0; display:inline-block;}
+
 /* progress view */
 .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:6px;}
 .stat{background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px 16px;}
@@ -207,6 +224,9 @@ button.btn.mic.listening{background:var(--warn); border-color:var(--warn); color
 .combo-pattern em{color:var(--text-muted); font-style:normal; font-weight:600;}
 .combo-examples{font-size:12.5px; color:var(--text-muted); margin-top:3px;}
 .combo-count{font-size:13px; font-weight:700; color:var(--accent-strong); background:var(--surface); border-radius:999px; padding:4px 11px; white-space:nowrap;}
+.feedback-list{display:flex; flex-direction:column; gap:8px;}
+.feedback-row{display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--surface-2); border-radius:12px; padding:10px 14px; font-size:13.5px;}
+.feedback-count{font-size:13px; font-weight:700; color:var(--accent-strong); background:var(--surface); border-radius:999px; padding:4px 11px; white-space:nowrap;}
 </style>
 
 </head>
@@ -279,6 +299,10 @@ button.btn.mic.listening{background:var(--warn); border-color:var(--warn); color
       <h3>Spelling patterns you keep mixing up</h3>
       <div class="combo-list" id="comboPairs"></div>
     </div>
+    <div class="card breakdown" id="feedbackCard" style="display:none;">
+      <h3>Suggestions you reported</h3>
+      <div class="feedback-list" id="feedbackSummary"></div>
+    </div>
   </div>
 </div>
 
@@ -301,6 +325,20 @@ button.btn.mic.listening{background:var(--warn); border-color:var(--warn); color
       <button class="btn ghost" id="popHear">🔊 Hear it</button>
       <button class="btn ghost" id="popShow">Show me</button>
       <button class="btn ghost" id="popSkip">Skip</button>
+    </div>
+    <div class="fb-footer" id="popFbFooter">
+      <button type="button" class="fb-link" id="popFlagWrong">⚑ This looks wrong</button>
+    </div>
+    <div class="fb-followup" id="popFlagFollowup" style="display:none;">
+      <div class="fb-thanks">Thanks — noted. I'm still learning too.</div>
+      <div class="fb-followup-row">
+        <label for="popFlagCorrection" style="width:100%;margin:0 0 6px;">What's actually right? (totally optional)</label>
+      </div>
+      <div class="fb-followup-row">
+        <input type="text" id="popFlagCorrection" placeholder="Type it here if you want…" autocomplete="off">
+        <button type="button" class="btn ghost" id="popFlagSaveCorrection">Save</button>
+      </div>
+      <button type="button" class="fb-link" id="popFlagFineAsIs">The word was fine as-is</button>
     </div>
   </div>
 </div>
@@ -660,7 +698,8 @@ var state = {
   text: "",
   flags: [],           // {start,end,original,suggestion,type,source,explanation,status:'open'|'fixed'|'revealed'|'skipped'}
   reviewing: false,
-  sessions: []
+  sessions: [],
+  feedback: []          // {word,suggestion,sentence,layer,type,model,studentCorrection,wasFineAsIs,timestamp} -- see reportFlag()
 };
 
 var editor = document.getElementById('editor');
@@ -802,6 +841,7 @@ function openPopover(idx){
   // this is exactly the case (a real word used wrongly, like "licker" for "like") where
   // hearing the word said aloud catches things text-only checking misses.
   popVoiceHint.style.display = !f.suggestion ? 'flex' : 'none';
+  resetFlagFeedbackUI(f);
   overlay.classList.add('show');
   setTimeout(function(){ popInput.focus(); }, 50);
 }
@@ -1070,6 +1110,92 @@ function checkAllResolved(){
   }
 }
 
+/* ---------------- "this looks wrong" flag feedback ----------------
+   A wrong suggestion delivered with total confidence is the worst dynamic for a
+   dyslexic student who already doubts their own instincts -- the app should be
+   able to say "I might be wrong here" as easily as the student can. One tap is
+   the whole requirement (never gated behind typing); an optional second step
+   lets them add what they think is actually right, or say the flag itself
+   shouldn't have fired at all. Every report doubles as real signal: which
+   layer (local dictionary vs. AI) and, for AI catches, which model produced
+   the miss -- exactly what's needed to spot a recurring bad pattern later. */
+function sentenceAround(text, start, end){
+  var left = Math.max(text.lastIndexOf('.', start-1), text.lastIndexOf('?', start-1), text.lastIndexOf('!', start-1));
+  var from = left === -1 ? 0 : left+1;
+  var candidates = ['.','?','!'].map(function(ch){ return text.indexOf(ch, end); }).filter(function(i){ return i !== -1; });
+  var to = candidates.length ? Math.min.apply(null, candidates)+1 : text.length;
+  return text.slice(from, to).trim();
+}
+
+var popFlagWrong = document.getElementById('popFlagWrong');
+var popFbFooter = document.getElementById('popFbFooter');
+var popFlagFollowup = document.getElementById('popFlagFollowup');
+var popFlagCorrection = document.getElementById('popFlagCorrection');
+
+function resetFlagFeedbackUI(f){
+  popFlagCorrection.value = "";
+  if (f.type === 'ask'){
+    // a self-initiated lookup isn't a suggestion the app made -- nothing to flag as wrong
+    popFbFooter.style.display = 'none';
+    popFlagFollowup.style.display = 'none';
+    return;
+  }
+  popFbFooter.style.display = 'block';
+  if (f.feedbackIdx != null){
+    // already reported this flag earlier in this same session -- keep the thank-you
+    // showing (and still allow adding/editing an optional correction) instead of
+    // letting a re-open of the same popover log a second, duplicate report.
+    popFbFooter.style.display = 'none';
+    popFlagFollowup.style.display = 'block';
+    var existing = state.feedback[f.feedbackIdx];
+    if (existing && existing.studentCorrection) popFlagCorrection.value = existing.studentCorrection;
+  } else {
+    popFlagFollowup.style.display = 'none';
+  }
+}
+
+function reportFlag(flagIndex){
+  var f = state.flags[flagIndex];
+  if (f.feedbackIdx != null) return; // already logged; the follow-up UI just edits it from here
+  var record = {
+    word: f.original,
+    suggestion: f.suggestion || null,
+    sentence: sentenceAround(state.text, f.start, f.end),
+    layer: f.source,             // 'local' or 'ai'
+    type: f.type,
+    model: f.source === 'ai' ? (f.model || null) : null,
+    studentCorrection: null,
+    wasFineAsIs: false,
+    timestamp: new Date().toISOString()
+  };
+  state.feedback.push(record);
+  f.feedbackIdx = state.feedback.length - 1;
+  saveFeedback();
+}
+
+popFlagWrong.addEventListener('click', function(){
+  reportFlag(currentFlagIndex);
+  popFbFooter.style.display = 'none';
+  popFlagFollowup.style.display = 'block';
+});
+
+document.getElementById('popFlagSaveCorrection').addEventListener('click', function(){
+  var f = state.flags[currentFlagIndex];
+  if (f.feedbackIdx == null) return;
+  var val = popFlagCorrection.value.trim();
+  state.feedback[f.feedbackIdx].studentCorrection = val || null;
+  state.feedback[f.feedbackIdx].wasFineAsIs = false;
+  saveFeedback();
+});
+
+document.getElementById('popFlagFineAsIs').addEventListener('click', function(){
+  var f = state.flags[currentFlagIndex];
+  if (f.feedbackIdx == null) return;
+  state.feedback[f.feedbackIdx].wasFineAsIs = true;
+  state.feedback[f.feedbackIdx].studentCorrection = null;
+  saveFeedback();
+});
+
 /* ---------------- speech ---------------- */
 function speak(t){
   try{
@@ -1157,13 +1283,13 @@ async function runAIPass(text, localFlags){
       if (overlapIdx > -1){
         var f = state.flags[overlapIdx];
         f.start = loc.start; f.end = loc.end; f.original = item.original;
-        f.suggestion = item.suggestion; f.type = type; f.source='ai'; f.explanation = item.explanation || f.explanation;
+        f.suggestion = item.suggestion; f.type = type; f.source='ai'; f.model='gpt-5-mini'; f.explanation = item.explanation || f.explanation;
         claimedIdx[overlapIdx] = true;
         upgraded++;
       } else {
         state.flags.push({
           start:loc.start, end:loc.end, original:item.original, suggestion:item.suggestion,
-          type:type, source:'ai', status:'open', explanation: item.explanation || ("This should be “"+item.suggestion+"”.")
+          type:type, source:'ai', model:'gpt-5-mini', status:'open', explanation: item.explanation || ("This should be “"+item.suggestion+"”.")
         });
         claimedIdx[state.flags.length-1] = true;
         added++;
@@ -1264,7 +1390,49 @@ function saveProgress(){
   try{ localStorage.setItem(PROGRESS_KEY, JSON.stringify(state.sessions)); }catch(e){}
 }
 
+/* Kept in a separate doc from progress/summary on purpose -- this is a much
+   smaller, differently-shaped record (raw reports, not session stats), and
+   keeping it separate means neither can accidentally clobber the other. */
+var FEEDBACK_KEY = "secondlook_feedback_v1";
+function loadFeedback(){
+  try{
+    var raw = localStorage.getItem(FEEDBACK_KEY);
+    if (raw){
+      var parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) state.feedback = parsed;
+    }
+  }catch(e){}
+  renderProgress();
+}
+function saveFeedback(){
+  renderProgress();
+  try{ localStorage.setItem(FEEDBACK_KEY, JSON.stringify(state.feedback)); }catch(e){}
+}
+
+function renderFeedbackSummary(){
+  var card = document.getElementById('feedbackCard');
+  var list = document.getElementById('feedbackSummary');
+  var fb = state.feedback;
+  if (!fb || !fb.length){ card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  // group by (layer + type) so a pattern like "AI word-choice flags reported
+  // wrong: 7" surfaces on its own -- exactly the kind of aggregate that's a
+  // real prompt-tuning signal if one bucket keeps growing.
+  var groups = {};
+  fb.forEach(function(r){
+    var layerLabel = r.layer === 'ai' ? 'AI' : (r.layer === 'manual' ? 'Self-asked' : 'Local');
+    var typeLabel = TYPE_LABEL[r.type] || r.type;
+    var key = layerLabel + ' ' + typeLabel;
+    groups[key] = (groups[key]||0) + 1;
+  });
+  var rows = Object.keys(groups).sort(function(a,b){ return groups[b]-groups[a]; });
+  list.innerHTML = rows.map(function(k){
+    return '<div class="feedback-row"><span>'+escapeHtml(k)+' flags reported wrong</span><span class="feedback-count">'+groups[k]+'</span></div>';
+  }).join('') + '<div class="empty-state" style="padding:10px 0 0;font-size:12.5px;">'+fb.length+' total report'+(fb.length===1?'':'s')+' — thanks for helping make this better.</div>';
+}
+
 function renderProgress(){
+  renderFeedbackSummary();
   var grid = document.getElementById('statGrid');
   var chart = document.getElementById('chart');
   var bars = document.getElementById('bars');
@@ -1355,6 +1523,7 @@ function renderProgress(){
 }
 
 loadProgress();
+loadFeedback();
 renderAIUsage();
 })();
 </script>
